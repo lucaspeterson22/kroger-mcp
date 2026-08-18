@@ -5,6 +5,27 @@ All notable changes to the `kroger-mcp` package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - fork
+
+### Removed
+- `remove_from_cart` and `clear_current_cart` MCP tools. Kroger's public Cart API
+  has no delete or update endpoint (its OpenAPI spec exposes only
+  `PUT /v1/cart/add`), so these tools edited a local JSON file while the user's
+  real cart was unchanged. A tool named "remove" that does not remove is a
+  liability in an agent loop. Removals belong in the Kroger app.
+
+### Changed
+- `view_current_cart` docstring now states plainly that it reads a local
+  append-only log which drifts from the real cart.
+- README: MCP client configuration (JSON and Hermes) moved to the top; the
+  limitations section now describes the API constraint accurately.
+- `__init__.py`: version synced with `pyproject.toml` (was 0.1.0 vs 0.3.1) and
+  placeholder author metadata dropped.
+
+### Added
+- `AGENTS.md` with verified endpoint tables for the public and partner Cart APIs,
+  and instructions for re-reading Kroger's OpenAPI specs from their SPA docs.
+
 ## [0.3.1] - 2026-07-08
 
 ### Added

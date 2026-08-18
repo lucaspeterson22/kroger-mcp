@@ -4,6 +4,87 @@
 
 A [FastMCP](https://github.com/jlowin/fastmcp) server that provides AI assistants like Claude with access to Kroger's grocery shopping functionality through the Model Context Protocol ([MCP](https://docs.anthropic.com/en/docs/agents-and-tools/mcp)). This server enables AI assistants to find stores, search products, manage shopping carts, and access Kroger's comprehensive grocery data via the [kroger-api](https://github.com/CupOfOwls/kroger-api) python library.
 
+## ⚡ Configure in your MCP client
+
+Everything below assumes you have Kroger API credentials — free, self-serve, from the
+[Kroger Developer Portal](https://developer.kroger.com/manage/apps/register). See
+[Prerequisites](#prerequisites) for the walkthrough.
+
+### JSON MCP config
+
+Most MCP hosts (Claude Desktop, Claude Code, and friends) take an `mcpServers` block.
+Point it at this repo's virtualenv:
+
+```json
+{
+  "mcpServers": {
+    "kroger": {
+      "command": "/absolute/path/to/kroger-mcp/.venv/bin/kroger-mcp",
+      "args": [],
+      "env": {
+        "KROGER_CLIENT_ID": "your_client_id",
+        "KROGER_CLIENT_SECRET": "your_client_secret",
+        "KROGER_REDIRECT_URI": "http://localhost:8000/callback",
+        "KROGER_USER_ZIP_CODE": "10001"
+      }
+    }
+  }
+}
+```
+
+Create that virtualenv first:
+
+```bash
+python3 -m venv .venv && .venv/bin/python -m pip install -e .
+```
+
+If you have `uv` installed you can skip the venv and use `"command": "uvx", "args": ["kroger-mcp"]`
+instead.
+
+### Hermes
+
+Hermes uses the same shape, in YAML, under `mcp_servers:` in `~/.hermes/config.yaml`:
+
+```yaml
+mcp_servers:
+  kroger:
+    command: /absolute/path/to/kroger-mcp/.venv/bin/kroger-mcp
+    args: []
+    enabled: true
+    env:
+      KROGER_CLIENT_ID: "your_client_id"
+      KROGER_CLIENT_SECRET: "your_client_secret"
+      KROGER_REDIRECT_URI: "http://localhost:8000/callback"
+      KROGER_USER_ZIP_CODE: "10001"
+```
+
+Or let the CLI write it for you:
+
+```bash
+hermes mcp add kroger --command /absolute/path/to/kroger-mcp/.venv/bin/kroger-mcp --env KROGER_CLIENT_ID=your_client_id KROGER_CLIENT_SECRET=your_client_secret KROGER_REDIRECT_URI=http://localhost:8000/callback KROGER_USER_ZIP_CODE=10001
+```
+
+Then confirm it connects and see the tool list:
+
+```bash
+hermes mcp test kroger
+```
+
+Credentials can live in `.env` next to the repo instead of the `env` block, if you prefer
+to keep secrets out of your client config.
+
+### ⚠️ What this server can and cannot do to your cart
+
+It can **add** items, search products, and set your preferred store. It **cannot remove
+items or change quantities** — Kroger's public Cart API exposes exactly one endpoint,
+`PUT /v1/cart/add`, with no read, update, or delete. Removals happen in the Kroger app.
+See [AGENTS.md](AGENTS.md) for the verified endpoint tables.
+
+> **This is a fork** of [CupOfOwls/kroger-mcp](https://github.com/CupOfOwls/kroger-mcp) (MIT).
+> Changes: removed the `remove_from_cart` / `clear_current_cart` tools, which mutated only a
+> local file while appearing to edit the real cart; documented the actual Kroger API surface in
+> [AGENTS.md](AGENTS.md); added MCP client setup docs above.
+
 ## 📺 Demo
 
 Using Claude with this MCP server to search for stores, find products, and add items to your cart:
@@ -185,9 +266,7 @@ fastmcp dev server.py --with-editable .
 |------|-------------|---------------|
 | `add_items_to_cart` | Add a single item to cart | Yes |
 | `bulk_add_to_cart` | Add multiple items to cart in one operation | Yes |
-| `view_current_cart` | View items currently in your local cart tracking | No |
-| `remove_from_cart` | Remove items from local cart tracking | No |
-| `clear_current_cart` | Clear all items from local cart tracking | No |
+| `view_current_cart` | View the local log of items this server added | No |
 | `mark_order_placed` | Move current cart to order history | No |
 | `view_order_history` | View history of placed orders | No |
 
@@ -241,9 +320,11 @@ State files (cart, order history, preferences) and OAuth tokens are stored in th
 They are never written to the current working directory, which may be read-only or change between sessions under MCP hosts like Claude Desktop. Files from older versions that live in the working directory are migrated automatically on first use.
 
 ### 🚧 Kroger Public API Limitations
-- **View Only**: The `remove_from_cart` and `clear_current_cart` tools ONLY affect local tracking, not the actual Kroger cart
-- **Local Sync**: Use these tools only when the user has already removed items from their cart in the Kroger app/website
-- **One-Way**: Items can be added to the Kroger cart but not removed through the Public API. The Partner API would allow these things, but that requires entering a contract with Kroger.
+- **Add-only**: The public Cart API is a single endpoint, `PUT /v1/cart/add`. There is no read, no quantity update, and no delete.
+- **No remove/update tools**: This fork removes upstream's `remove_from_cart` and `clear_current_cart`. They only ever edited a local JSON file while leaving the real cart untouched, which reads as a working removal when it isn't. Remove items in the Kroger app instead.
+- **Local log drifts**: `view_current_cart` shows what *this server* added. It cannot see anything you add or remove elsewhere. Reset it with `mark_order_placed`.
+- **Quantity**: Adding the same UPC again increases quantity. Lowering it requires the Kroger app.
+- **Partner API**: Kroger's partner tier does offer full cart CRUD (`/v1/carts/...`), but access requires an agreement negotiated with Kroger Digital and is not available through self-serve app registration.
 
 | API | Version | Rate Limit | Notes |
 |-----|---------|------------|-------|

@@ -269,10 +269,18 @@ def register_tools(mcp):
     @mcp.tool()
     async def view_current_cart(ctx: Context = None) -> Dict[str, Any]:
         """
-        View the current cart contents tracked locally.
-        
-        Note: This tool can only see items that were added via this MCP server.
-        The Kroger API does not provide permission to query the actual user cart contents.
+        View the local record of items this server has added to the Kroger cart.
+
+        This is a local append-only log, NOT the real cart. Kroger's public Cart
+        API exposes a single endpoint (PUT /v1/cart/add), so the actual cart
+        cannot be read back, and this record cannot see:
+          - items the user added in the Kroger app or website
+          - items the user removed or re-quantified anywhere outside this server
+
+        It will therefore drift from the real cart over time. Treat it as "what I
+        sent to Kroger this session", and tell the user to check the Kroger app
+        for authoritative cart contents. Use mark_order_placed to reset it once an
+        order is submitted.
         
         Returns:
             Dictionary containing current cart items and summary
@@ -301,103 +309,6 @@ def register_tools(mcp):
             return {
                 "success": False,
                 "error": f"Failed to view cart: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def remove_from_cart(
-        product_id: str,
-        modality: str = None,
-        ctx: Context = None
-    ) -> Dict[str, Any]:
-        """
-        Remove an item from the local cart tracking only.
-        
-        IMPORTANT: This tool CANNOT remove items from the actual Kroger cart in the app/website.
-        It only updates our local tracking to stay in sync. The user must remove the item from
-        their actual cart through the Kroger app or website themselves.
-        
-        Use this tool only when:
-        1. The user has already removed an item from their Kroger cart through the app/website
-        2. You need to update the local tracking to reflect that change
-        
-        Args:
-            product_id: The product ID to remove
-            modality: Specific modality to remove (if None, removes all instances)
-        
-        Returns:
-            Dictionary confirming the removal from local tracking
-        """
-        try:
-            cart_data = _load_cart_data()
-            current_cart = cart_data.get("current_cart", [])
-            original_count = len(current_cart)
-            
-            if modality:
-                # Remove specific modality
-                cart_data["current_cart"] = [
-                    item for item in current_cart 
-                    if not (item.get("product_id") == product_id and item.get("modality") == modality)
-                ]
-            else:
-                # Remove all instances
-                cart_data["current_cart"] = [
-                    item for item in current_cart 
-                    if item.get("product_id") != product_id
-                ]
-            
-            items_removed = original_count - len(cart_data["current_cart"])
-            
-            if items_removed > 0:
-                cart_data["last_updated"] = datetime.now().isoformat()
-                _save_cart_data(cart_data)
-            
-            return {
-                "success": True,
-                "message": f"Removed {items_removed} items from local cart tracking",
-                "items_removed": items_removed,
-                "product_id": product_id,
-                "modality": modality
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to remove from cart: {str(e)}"
-            }
-
-    @mcp.tool()
-    async def clear_current_cart(ctx: Context = None) -> Dict[str, Any]:
-        """
-        Clear all items from the local cart tracking only.
-        
-        IMPORTANT: This tool CANNOT remove items from the actual Kroger cart in the app/website.
-        It only clears our local tracking. The user must remove items from their actual cart
-        through the Kroger app or website themselves.
-        
-        Use this tool only when:
-        1. The user has already cleared their Kroger cart through the app/website
-        2. You need to update the local tracking to reflect that change
-        3. Or when the local tracking is out of sync with the actual cart
-        
-        Returns:
-            Dictionary confirming the local cart tracking was cleared
-        """
-        try:
-            cart_data = _load_cart_data()
-            items_count = len(cart_data.get("current_cart", []))
-            
-            cart_data["current_cart"] = []
-            cart_data["last_updated"] = datetime.now().isoformat()
-            _save_cart_data(cart_data)
-            
-            return {
-                "success": True,
-                "message": f"Cleared {items_count} items from local cart tracking",
-                "items_cleared": items_count
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to clear cart: {str(e)}"
             }
 
     @mcp.tool()
